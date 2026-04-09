@@ -1,0 +1,33 @@
+{
+  "name": "wechat-cursor-bridge",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Heresion/wechat-cursor-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Heresion/wechat-cursor-bridge/issues"
+  },
+  "homepage": "https://github.com/Heresion/wechat-cursor-bridge#readme",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx --env-file=.env src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file=.env dist/index.js"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/qrcode-terminal": "^0.12.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}
+

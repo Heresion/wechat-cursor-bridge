@@ -290,7 +290,9 @@ export class CursorAgentClient {
     const agentPath = resolveAgentExecutable();
     const env = withCursorAgentPath(process.env);
 
-    const args = ["-p", "--output-format", "json", "--trust", "--model", model];
+    // In headless/print mode, MCP servers may not be available unless explicitly approved.
+    // We enable auto-approval so prompts can reliably use configured MCPs (e.g. FeishuProjectMcp).
+    const args = ["-p", "--approve-mcps", "--output-format", "json", "--trust", "--model", model];
     if (req.resumeSessionId?.trim()) {
       args.push("--resume", req.resumeSessionId.trim());
     }

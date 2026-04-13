@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { clearCredentials, login } from "./weixin/auth.js";
 import { Bot } from "./bot.js";
 import { CursorAgentClient } from "./cursor/agentClient.js";

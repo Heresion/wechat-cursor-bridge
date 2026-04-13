@@ -49,6 +49,24 @@ function formatDurationCn(ms: number): string {
   return rm > 0 ? `${h}小时${rm}分` : `${h}小时`;
 }
 
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
+  return i === 0 ? `${Math.floor(n)} ${units[i]}` : `${n.toFixed(1)} ${units[i]}`;
+}
+
+function isStatusCommand(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+  return t === "测试服务状态" || t === "服务状态" || t === "/status" || t === "status";
+}
+
 function envErrorMaxChars(): number {
   const raw = process.env.WECHAT_ERROR_MAX_CHARS?.trim();
   if (!raw) return 3500;
@@ -64,6 +82,96 @@ function truncateForWeChat(text: string, maxChars: number): string {
 function errorMessageOf(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+type FeishuBugScope = "mine" | "all";
+
+type FeishuBugsCmd = {
+  projectKey?: string;
+  scope: FeishuBugScope;
+  page: number;
+  size: number;
+};
+
+type FeishuPageAction = "next" | "prev";
+
+function parseFeishuBugsCommand(text: string): FeishuBugsCmd | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/feishu-bugs")) return null;
+  const parts = trimmed.split(/\s+/).slice(1);
+  let projectKey: string | undefined;
+  let scope: FeishuBugScope = "mine";
+  let page = 1;
+  let size = 20;
+
+  for (const p of parts) {
+    if (p === "mine" || p === "all") {
+      scope = p;
+      continue;
+    }
+    if (p.startsWith("p=") || p.startsWith("page=")) {
+      const n = Number(p.split("=")[1]);
+      if (Number.isFinite(n) && n >= 1) page = Math.floor(n);
+      continue;
+    }
+    if (p.startsWith("size=")) {
+      const n = Number(p.split("=")[1]);
+      if (Number.isFinite(n) && n >= 1 && n <= 50) size = Math.floor(n);
+      continue;
+    }
+    if (!projectKey) {
+      projectKey = p;
+      continue;
+    }
+  }
+
+  return { projectKey, scope, page, size };
+}
+
+function parseFeishuPageAction(text: string): FeishuPageAction | null {
+  const trimmed = text.trim();
+  if (trimmed === "/feishu-bugs-next") return "next";
+  if (trimmed === "/feishu-bugs-prev") return "prev";
+  return null;
+}
+
+function buildFeishuBugsPrompt(wechatUserId: string, cmd: FeishuBugsCmd): string {
+  const offset = (cmd.page - 1) * cmd.size;
+  return [
+    "请通过 MCP 服务器 FeishuProjectMcp 查询飞书项目缺陷列表，并给出简洁结果。",
+    `当前微信用户ID：${wechatUserId}`,
+    `查询范围：${cmd.scope === "mine" ? "仅我相关（指向我/分配给我）" : "全部缺陷"}`,
+    `分页参数：page=${cmd.page}, size=${cmd.size}, offset=${offset}`,
+    `指定项目Key：${cmd.projectKey ?? "未指定（自动选择最近/默认项目）"}`,
+    "",
+    "执行要求：",
+    "1) 必须优先使用 MCP（FeishuProjectMcp）获取实时数据，不要臆造。",
+    "2) 若指定了项目Key，优先使用该项目；否则自动尝试可用默认/最近项目。",
+    "3) 按优先级和更新时间排序，返回本页数据（最多 size 条）。",
+    "4) 输出字段：缺陷ID、标题、状态、优先级、负责人、更新时间。",
+    "5) 最后给出统计：总数、进行中、待处理、已解决，并提示下一页命令示例。",
+  ].join("\n");
+}
+
+function buildFeishuBugsHelpText(): string {
+  return [
+    "用法：/feishu-bugs [项目Key] [mine|all] [p=页码] [size=每页条数]",
+    "",
+    "参数说明：",
+    "- 项目Key：可选，不填时自动选择最近/默认项目",
+    "- mine|all：可选，默认 mine",
+    "- p=页码：可选，默认 p=1，最小 1",
+    "- size=每页条数：可选，默认 20，范围 1-50",
+    "",
+    "示例：",
+    "- /feishu-bugs",
+    "- /feishu-bugs all p=1 size=20",
+    "- /feishu-bugs PRJ123 mine p=2 size=10",
+    "",
+    "分页快捷命令：",
+    "- /feishu-bugs-next",
+    "- /feishu-bugs-prev",
+  ].join("\n");
 }
 
 export class Bot {
@@ -94,6 +202,8 @@ export class Bot {
   >();
   /** 每个用户拥有的 task ids（包含运行中/已完成可继续对话的任务）。 */
   private userTasks = new Map<string, Set<string>>();
+  /** 记录每个用户最近一次 /feishu-bugs 查询参数（用于 next/prev）。 */
+  private feishuBugsQueryByUser = new Map<string, FeishuBugsCmd>();
 
   constructor(credentials: LoginCredentials, agent: CursorAgentClient) {
     this.credentials = credentials;
@@ -180,6 +290,22 @@ export class Bot {
 
     console.log(`[bot] 收到消息 from=${fromUser}: ${text.slice(0, 200)}`);
 
+    if (isStatusCommand(text)) {
+      const mode = process.env.CURSOR_AGENT_MODE?.trim() || "simple";
+      const runningTaskCount = Array.from(this.tasks.values()).filter((t) => t.running).length;
+      const mem = process.memoryUsage();
+      const status = [
+        "服务状态：✅ 运行中",
+        `运行时长：${formatDurationCn(process.uptime() * 1000)}`,
+        `Agent 模式：${mode}`,
+        `运行中任务：${runningTaskCount}`,
+        `内存占用：rss=${formatBytes(mem.rss)}, heapUsed=${formatBytes(mem.heapUsed)}`,
+        `时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+      ].join("\n");
+      await this.reply(fromUser, status);
+      return;
+    }
+
     // 多任务控制指令（仅对当前用户生效）
     if (text.trim() === "/jobs") {
       const ids = Array.from(this.userTasks.get(fromUser) ?? []);
@@ -264,6 +390,62 @@ export class Bot {
       delete this.cursorSessions[fromUser];
       void this.scheduleSaveSessions();
       await this.reply(fromUser, "对话已重置");
+      return;
+    }
+
+    if (text.trim() === "/feishu-bugs-help") {
+      await this.reply(fromUser, buildFeishuBugsHelpText());
+      return;
+    }
+
+    const pageAction = parseFeishuPageAction(text);
+    if (pageAction) {
+      const last = this.feishuBugsQueryByUser.get(fromUser);
+      if (!last) {
+        await this.reply(
+          fromUser,
+          "请先执行一次 /feishu-bugs，再使用分页快捷命令。\n示例：/feishu-bugs p=1 size=20",
+        );
+        return;
+      }
+      const nextPage = pageAction === "next" ? last.page + 1 : Math.max(1, last.page - 1);
+      if (pageAction === "prev" && last.page <= 1) {
+        await this.reply(fromUser, "当前已经是第一页。");
+        return;
+      }
+      const cmd: FeishuBugsCmd = { ...last, page: nextPage };
+      this.feishuBugsQueryByUser.set(fromUser, cmd);
+      const taskId = this.nextTaskId();
+      const prompt = buildFeishuBugsPrompt(fromUser, cmd);
+      await this.runCursorCliTask({
+        taskId,
+        fromUser,
+        text: prompt,
+        msg,
+        existing: false,
+      });
+      return;
+    }
+
+    if (text.trim().startsWith("/feishu-bugs")) {
+      const parsed = parseFeishuBugsCommand(text);
+      if (!parsed) {
+        await this.reply(
+          fromUser,
+          "用法：/feishu-bugs [项目Key] [mine|all] [p=页码] [size=每页条数]\n示例：/feishu-bugs p=2 size=20\n示例：/feishu-bugs PRJ123 all p=1 size=10",
+        );
+        return;
+      }
+      this.feishuBugsQueryByUser.set(fromUser, parsed);
+      const taskId = this.nextTaskId();
+      const prompt = buildFeishuBugsPrompt(fromUser, parsed);
+      await this.runCursorCliTask({
+        taskId,
+        fromUser,
+        text: prompt,
+        msg,
+        existing: false,
+      });
       return;
     }
 

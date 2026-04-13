@@ -124,12 +124,18 @@ CURSOR_OPENAI_MODEL=auto
 
 - **普通消息**：创建一个新任务，先回“收到”，再心跳，最后回结果  
   - 每条任务消息都会带 `【任务#id】`
+- **`/status`**：查看服务状态（运行时长、内存、运行中任务数、Agent 模式）
 - **`/jobs`**：列出当前运行中的任务
 - **`/cancel <id>`**：中断指定任务（例如 `/cancel 2`）
 - **`/cancel all`**：中断当前用户所有运行中的任务
 - **`/task <id> <text>`**：在同一个任务里继续对话（复用该任务的 Cursor `session_id`）  
   - 示例：`/task 2 继续刚才的第2步，帮我补全代码`
 - **`/clear`**：清空“按用户维度”的会话映射（该用户的 session）
+- **`/feishu-bugs`**：查询飞书项目缺陷（通过 MCP 获取实时数据）
+  - 用法：`/feishu-bugs [项目Key] [mine|all] [p=页码] [size=每页条数]`
+  - 示例：`/feishu-bugs`、`/feishu-bugs all p=1 size=20`、`/feishu-bugs PRJ123 mine p=2 size=10`
+  - 分页：`/feishu-bugs-next`、`/feishu-bugs-prev`
+  - 帮助：`/feishu-bugs-help`
 
 ## 心跳与超长任务
 
@@ -175,6 +181,13 @@ iLink 文本消息不支持 Markdown 渲染，本项目会将常见 Markdown 转
   - `WECHAT_FORMAT_REPLY`: 回复美化开关
   - `WECHAT_FORMAT_KEYWORDS`: 行首关键词图标开关
   - `WECHAT_MAX_CHARS_PER_MESSAGE`: 单条最大字符（超出拆分）
+
+## 飞书 MCP（可选）
+
+如果你希望在微信里直接查询飞书缺陷（`/feishu-bugs`），需要在本机 Cursor 里配置 MCP 服务器（例如 `FeishuProjectMcp`）并提供 token。
+
+- **不要把 token 写进仓库**：推荐仅放在 Cursor GUI 的 MCP 配置中（例如 `~/.cursor/mcp.json`），本项目已默认忽略 `.cursor/mcp.json`
+- **也可通过环境变量提供**：将 token 放到 `.env`，字段名参考 `.env.example` 中的 `FEISHU_MCP_TOKEN`
 
 ## 开源与合规提示
 

@@ -98,12 +98,18 @@ Value is a JSON object. It will be merged into request headers (supported by mul
 
 - **Normal message**: create a new task, first reply 「received」, then send heartbeat, and finally return the result
   - Each task message will include `【任务#id】`
+- **`/status`**: show service status (uptime, memory usage, running tasks, agent mode)
 - **`/jobs`**: list tasks currently running
 - **`/cancel <id>`**: interrupt/cancel a specific task (e.g. `/cancel 2`)
 - **`/cancel all`**: interrupt/cancel all running tasks for the current user
 - **`/task <id> <text>`**: continue the conversation within the same task (reuse the Cursor `session_id` of that task)
   - Example: `/task 2 Continue the 2nd step you did before, help me fill in the code`
 - **`/clear`**: clear the session mapping “by user” (the session of that user)
+- **`/feishu-bugs`**: query Feishu project bugs (fetches real-time data via MCP)
+  - Usage: `/feishu-bugs [projectKey] [mine|all] [p=page] [size=pageSize]`
+  - Examples: `/feishu-bugs`, `/feishu-bugs all p=1 size=20`, `/feishu-bugs PRJ123 mine p=2 size=10`
+  - Paging: `/feishu-bugs-next`, `/feishu-bugs-prev`
+  - Help: `/feishu-bugs-help`
 
 ## Heartbeat and long-running tasks
 
@@ -149,4 +155,11 @@ iLink text messages do not support Markdown rendering. This project converts com
   - `WECHAT_FORMAT_REPLY`: reply formatting toggle
   - `WECHAT_FORMAT_KEYWORDS`: keyword-icon toggle at the beginning of lines
   - `WECHAT_MAX_CHARS_PER_MESSAGE`: maximum characters per message (split if exceeded)
+
+## Feishu MCP (optional)
+
+If you want to query Feishu bugs from WeChat (`/feishu-bugs`), you need to configure an MCP server in Cursor (e.g. `FeishuProjectMcp`) and provide a token.
+
+- **Do not commit tokens**: keep them in Cursor GUI MCP config (e.g. `~/.cursor/mcp.json`). This repo also ignores `.cursor/mcp.json` by default.
+- **Optional via env**: you can also provide the token in `.env`. See `.env.example` for `FEISHU_MCP_TOKEN`.
 
